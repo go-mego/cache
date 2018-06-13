@@ -40,26 +40,6 @@ func (m *memcache) Set(key string, value string, options ...*SetOptions) error {
 	})
 }
 
-func (m *memcache) get(key string) (item, error) {
-	v, err := m.db.Get(key)
-	if err != nil {
-		if err == mem.ErrCacheMiss {
-			return item{}, ErrNotFound
-		}
-		return item{}, err
-	}
-	var i item
-	err = json.Unmarshal(v.Value, &i)
-	if err != nil {
-		return item{}, err
-	}
-	if time.Since(i.createdAt) > i.ttl {
-		m.db.Delete(key)
-		return item{}, ErrNotFound
-	}
-	return i, nil
-}
-
 func (m *memcache) Get(key string) (string, error) {
 	i, err := m.get(key)
 	if err != nil {
@@ -69,21 +49,12 @@ func (m *memcache) Get(key string) (string, error) {
 }
 
 func (m *memcache) Has(key string) (bool, error) {
-	v, err := m.db.Get(key)
+	_, err := m.get(key)
 	if err != nil {
-		if err == mem.ErrCacheMiss {
+		if err == ErrNotFound {
 			return false, nil
 		}
 		return false, err
-	}
-	var i item
-	err = json.Unmarshal(v.Value, &i)
-	if err != nil {
-		return false, err
-	}
-	if time.Since(i.createdAt) > i.ttl {
-		m.db.Delete(key)
-		return false, nil
 	}
 	return true, nil
 }
@@ -104,15 +75,7 @@ func (m *memcache) DeleteAll() error {
 }
 
 func (m *memcache) Decrease(key string, count int) error {
-	v, err := m.db.Get(key)
-	if err != nil {
-		if err == mem.ErrCacheMiss {
-			return ErrNotFound
-		}
-		return err
-	}
-	var i item
-	err = json.Unmarshal(v.Value, &i)
+	i, err := m.get(key)
 	if err != nil {
 		return err
 	}
@@ -136,15 +99,7 @@ func (m *memcache) Decrease(key string, count int) error {
 }
 
 func (m *memcache) Increase(key string, count int) error {
-	v, err := m.db.Get(key)
-	if err != nil {
-		if err == mem.ErrCacheMiss {
-			return ErrNotFound
-		}
-		return err
-	}
-	var i item
-	err = json.Unmarshal(v.Value, &i)
+	i, err := m.get(key)
 	if err != nil {
 		return err
 	}
@@ -157,7 +112,7 @@ func (m *memcache) Increase(key string, count int) error {
 	if err != nil {
 		return err
 	}
-	err = m.db.Replace(&mem.Item{
+	err = m.db.Set(&mem.Item{
 		Key:   key,
 		Value: newV,
 	})
@@ -168,17 +123,29 @@ func (m *memcache) Increase(key string, count int) error {
 }
 
 func (m *memcache) TTL(key string) (time.Duration, error) {
-	v, err := m.db.Get(key)
-	if err != nil {
-		if err == mem.ErrCacheMiss {
-			return -1, ErrNotFound
-		}
-		return -1, err
-	}
-	var i item
-	err = json.Unmarshal(v.Value, &i)
+	i, err := m.get(key)
 	if err != nil {
 		return -1, err
 	}
 	return i.ttl - time.Since(i.createdAt), nil
+}
+
+func (m *memcache) get(key string) (item, error) {
+	v, err := m.db.Get(key)
+	if err != nil {
+		if err == mem.ErrCacheMiss {
+			return item{}, ErrNotFound
+		}
+		return item{}, err
+	}
+	var i item
+	err = json.Unmarshal(v.Value, &i)
+	if err != nil {
+		return item{}, err
+	}
+	if time.Since(i.createdAt) > i.ttl {
+		m.db.Delete(key)
+		return item{}, ErrNotFound
+	}
+	return i, nil
 }
